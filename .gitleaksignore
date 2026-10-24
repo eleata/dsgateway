@@ -1,0 +1,3 @@
+# gitleaks: tests/paridad_e2e.rs mocks the engine with token_sha "abcdef012345";
+# it is a hex digest in a test, not a key.
+be84f1a1bf6727f2eb4e38e0b76f1e9e34f3b335:tests/paridad_e2e.rs:generic-api-key:52
