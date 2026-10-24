@@ -1,6 +1,6 @@
 # The DeepSeek API gateway
 
-`gateway/` builds `ds41-gateway`, a Rust front end that gives TensorFold's token-in/token-out route the DeepSeek API's
+This repository builds `ds41-gateway`, a Rust front end that gives TensorFold's token-in/token-out route the DeepSeek API's
 surface. It is off by default (`API_GATEWAY=0`); `API_GATEWAY=1` starts it on `HOST:PORT` and moves the engine to
 `127.0.0.1:ENGINE_PORT`. The engine image is unchanged apart from `zig/patches/0011-token-route.patch`.
 
@@ -10,6 +10,10 @@ surface. It is off by default (`API_GATEWAY=0`); `API_GATEWAY=1` starts it on `H
 | --- | --- | --- |
 | `POST /v1/chat/completions`, `/v1/messages`, `/v1/responses` | the gateway or the engine | convert, render, encode, call `POST /inference/v1/generate`, stream the tokens back as the API's body or SSE |
 | `POST /v1/messages/count_tokens` | the gateway | convert and encode; `{"input_tokens": N}`; conversion errors use Anthropic's error shape |
+
+`usage` in Messages follows Anthropic's convention, where the cached prefix is reported apart: `input_tokens` counts
+the prompt tokens that were not read from cache, and `cache_read_input_tokens` the ones that were. Their sum is the
+full prompt.
 | `POST /ds41/render/{chat,messages,responses}` | the gateway | the rendered prompt, ids, image count, thinking, effort, sampling, limits and `fallback_reason`, without generating |
 | `GET /health` | the gateway | its own status, the engine's status and the engine's `/health`; 200 only while the engine is 200 |
 | `/inference/*` | the gateway | never exposed: 404 `{"detail": "Not Found"}` |
@@ -25,14 +29,15 @@ A request goes to the engine unchanged when the API conversion cannot represent 
 only the Zig server knows. The gateway logs one line with the reason and marks the response. Examples: a conversion error
 (unknown model, invalid role, `n != 1`, required/named `tool_choice` with thinking, an invalid strict schema), a
 `chat_template_kwargs` key other than `thinking`/`enable_thinking`/`reasoning_effort`, `prompt`, `draft`,
-`thinking_budget`, `priority`, `return_token_ids`, `guided_json`/`guided_regex`/`guided_choice`/`grammar`,
+`thinking_budget`, `priority`, `return_token_ids`, `guided_json`/`guided_regex`/`guided_choice`/`guided_grammar`,
 `structured_outputs`, a `response_format` the API does not know, `logprobs`/`top_logprobs` while the engine reports
 `logprobs: false`, `previous_response_id`/`store`/`conversation`, `modalities`/`audio`/`video_url`. `GATEWAY_STRICT=1`
 returns the API's 400 instead.
 
 The API path is used, on purpose, for fields the Zig server handles differently: `prefix`, `thinking: {type}`,
 `minimal`/`medium`/`xhigh`/`ultra` efforts, `stop` (content only), the API's default `max_tokens`, `response_format`
-`json_object`/`json_schema`/`regex` (written into the prompt, without grammar), `tool_choice: none`, and
+`json_object`/`json_schema`/`regex` (written into the prompt; `response_format.type = "grammar"` is read by the engine,
+but the API path does not emit it), `tool_choice: none`, and
 `parallel_tool_calls` (the API ignores it).
 
 ## Images
@@ -56,7 +61,7 @@ The served tokenizer's image-token spelling is given by `GATEWAY_IMAGE_TOKEN`; t
 
 - A named or required `tool_choice` with thinking falls back: the API's conversion cannot place the tool choice in the
   thinking prompt faithfully.
-- Grammar-constrained decoding (`guided_json`, `guided_regex`, `guided_choice`, `grammar`, `structured_outputs`) falls
+- Grammar-constrained decoding (`guided_json`, `guided_regex`, `guided_choice`, `guided_grammar`, `structured_outputs`) falls
   back; `json_object`/`json_schema`/`regex` are written into the prompt without a grammar.
 - `logprobs` / `top_logprobs` fall back until the engine serves logprobs on the token route.
 - The image token count is the API's own estimate; the engine's prompt length can differ by the tokenizer's special
@@ -68,10 +73,10 @@ The served tokenizer's image-token spelling is given by `GATEWAY_IMAGE_TOKEN`; t
 ## Running it
 
 With the recipe: `API_GATEWAY=1` in `scripts/local.sh`, then `./start.sh` (or `./start.sh restart`). `scripts/prepare.sh`
-builds `GATEWAY_IMAGE` from `gateway/Dockerfile`; `start.sh` starts it after the engine answers, waits for `/health` and
+builds `GATEWAY_IMAGE` from `Dockerfile`; `start.sh` starts it after the engine answers, waits for `/health` and
 runs both smoke tests. `./stop.sh` removes the gateway first and saves its log.
 
-By hand, from `gateway/`:
+By hand, from the repository root:
 
 ```sh
 cargo build --release --locked --bin ds41-gateway
@@ -79,21 +84,21 @@ cargo build --release --locked --bin ds41-gateway
   --tokenizer /served/tokenizer.json --served-name DeepSeek-V4.1-Flash-1017
 ```
 
-The flags and their defaults are in `gateway/src/main.rs` and `gateway/README.md`. The container runs as an unprivileged
+The flags and their defaults are in `src/main.rs` and `README.md`. The container runs as an unprivileged
 user, read-only, with `--memory` and `--cpus` from `GATEWAY_MEMORY` / `GATEWAY_CPUS`, and no GPU.
 
 ## Parity battery without a GPU
 
-The comparator (`ds41-paridad`) builds from `gateway/` and needs no model weights. The CPU harness is a fake token-in
+The comparator (`ds41-paridad`) builds from the repository root and needs no model weights. The CPU harness is a fake token-in
 engine: the TensorFold checkout's `fake_serve` (`zig/tests/server/build.sh`, then
 `zig-out/server/fake_serve serve zig/tests/server/fixtures`) with `TF_FAKE_TOKENIZER=tok/`,
 `TENSORFOLD_TOKEN_ROUTE=1` and `TF_FAKE_CONTEXT=65536`. Start it on `ENGINE_PORT`, start `ds41-gateway` against it, then
 
 ```sh
-ds41-paridad casos --casos gateway/casos
-ds41-paridad render --casos gateway/casos --zig http://127.0.0.1:ENGINE_PORT \
+ds41-paridad casos --casos casos
+ds41-paridad render --casos casos --zig http://127.0.0.1:ENGINE_PORT \
   --gateway http://127.0.0.1:PORT --tokenizer tok/tokenizer.json --salida informes/cpu
-ds41-paridad e2e --casos gateway/casos --gateway http://127.0.0.1:PORT \
+ds41-paridad e2e --casos casos --gateway http://127.0.0.1:PORT \
   --zig http://127.0.0.1:ENGINE_PORT --tokenizer tok/tokenizer.json --salida informes/cpu
 ```
 

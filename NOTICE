@@ -48,8 +48,8 @@ GLM-5.3-Flash-EXL3-2x-DGX-Sparks-TensorFold
   Copyright 2026 MiaAI-Lab and its contributors. Apache License, Version 2.0. scripts/config.sh, scripts/nodes.sh,
   start.sh, stop.sh, scripts/banner.sh, scripts/zig_flags.py, scripts/publish-image.sh, the tools/ checks other than
   validate.py, bench.py and smoke.py, docs/hermes-agent.md and the .github templates are adapted from it, including
-  code by webzone, Alexbob0, john, Eduardo Florencio and Steve Darlow (see CREDITS.md). scripts/memguard.sh, bench.py and
-  smoke.py are written for this project.
+  code by webzone, Alexbob0, john, Eduardo Florencio and Steve Darlow. This repository carries only part of that
+  recipe (the gateway and its comparator); the rest of the list above applies to the recipe, not here.
 
 NVIDIA PyTorch container (nvcr.io/nvidia/pytorch:26.07-py3)
   The image's base, under NVIDIA's container license and its components' own licenses.

@@ -26,12 +26,12 @@ enum Command {
     /// Validate the case files (unique ids, fields, expectations).
     Casos {
         /// Directory with `*.json` cases.
-        #[arg(long, default_value = "gateway/casos")]
+        #[arg(long, default_value = "casos")]
         casos: PathBuf,
     },
     /// Compare the API render with the Zig `/tokenize` render.
     Render {
-        #[arg(long, default_value = "gateway/casos")]
+        #[arg(long, default_value = "casos")]
         casos: PathBuf,
         #[arg(long)]
         zig: String,
@@ -52,7 +52,7 @@ enum Command {
     },
     /// Check the non-stream and stream API, the invariants and the token hashes.
     E2e {
-        #[arg(long, default_value = "gateway/casos")]
+        #[arg(long, default_value = "casos")]
         casos: PathBuf,
         #[arg(long)]
         gateway: String,

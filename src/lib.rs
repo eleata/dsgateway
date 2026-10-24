@@ -34,11 +34,18 @@ pub fn test_tokenizer() -> Tokenizer {
     let path = std::env::var_os("DS41_TOKENIZER")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tok/tokenizer.json")
+            // The recipe keeps the tokenizer one level up; this repository keeps it in ./tok.
+            let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            let local = manifest.join("tok/tokenizer.json");
+            if local.exists() {
+                local
+            } else {
+                manifest.join("../tok/tokenizer.json")
+            }
         });
     Tokenizer::from_file(&path).unwrap_or_else(|error| {
         panic!(
-            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or restore the default ../tok/tokenizer.json",
+            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or place tok/tokenizer.json in the repository",
             path.display()
         )
     })

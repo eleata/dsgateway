@@ -1,68 +1,51 @@
-# dsgateway — the DeepSeek API in front of an engine that only speaks tokens
+# dsgateway — launch note
 
-*A launch note, written to be published. Signed by eleata.*
+`dsgateway` is a Rust front end that gives a token-in/token-out inference engine the DeepSeek API surface.
+Binaries: `ds41-gateway` and `ds41-paridad`. License Apache-2.0. Author: eleata.
 
----
+## What problem it addresses
 
-## The problem
+TensorFold's engine serves token ids. Clients (OpenAI SDK, Anthropic SDK, agent frameworks) expect one of three
+API shapes. Rewriting the client per engine is avoidable if the conversion happens in front of the engine,
+against the engine's own contract.
 
-Local inference on DGX Sparks got fast enough to be the default answer for a lot of work. The engines that
-run there are excellent at one thing: turning token ids into token ids. What they are not is an API.
+## What it does
 
-Every client you already have — the OpenAI SDK, the Anthropic SDK, an agent framework, a chat UI — speaks one
-of three shapes. An engine that speaks none of them means either rewriting the client or putting something in
-the middle. Until now there was nothing in the middle that understood the actual contract.
+Converts requests with DeepSeek's `deepseek-recipe` 0.2.0, renders and encodes the prompt, calls
+`POST /inference/v1/generate`, and reassembles the token stream into the API's body or SSE. Requests the
+conversion cannot represent are forwarded unchanged with `x-ds41-gateway: fallback` and a log line.
+`--strict` returns the API's 400 instead of falling back.
 
-## What we shipped
+## Measurements
 
-`dsgateway` is that middle layer, written in Rust, 13.9 MiB, no Python, no OpenCV, no GPU, running read-only
-as an unprivileged user.
+Two DGX Sparks, DeepSeek-V4.1-Flash-1017 EXL3 2.9 bpw, TP=2, 2026-10-23. Same prompts, three runs, alternated.
 
-Point a client at `:8888` and it gets Chat Completions, Anthropic Messages, Responses, `count_tokens`,
-streaming, tools and images. The prompt is converted with DeepSeek's own `deepseek-recipe` library, rendered
-and encoded on the gateway, and handed to the engine as token ids. The engine never sees text, and it never
-changes.
+- Decode: 78.4 tok/s (code) and 66.1 tok/s (prose) through the gateway, against 67.3 and 58.2 directly.
+- Four concurrent requests: 213.5 tok/s aggregate through the gateway, 104.9 directly.
+- Prefill of a 151,058-token prompt: 76.2 s through the gateway, 76.8 s directly.
+- Gateway RSS: 235 MiB idle, 306 MiB after a 188,795-token prompt.
+- Bit-exactness: 31 of 31 fixed prompts identical to the previous engine build (ids, text, finish reason,
+  cached tokens), including a 99,916-token prompt and resumable prefixes.
 
-## What we measured
+Ranges, method and what is not covered are in `BENCHMARKS.md`. One machine, one checkpoint, no multi-hour soak;
+TTFT is only observable through the gateway.
 
-We did not ship a claim, we shipped a measurement. On a two-Spark pair serving DeepSeek-V4.1-Flash-1017:
+## Engine-side gaps
 
-- **No overhead.** Decode runs at 78.4 tok/s through the gateway against 67.3 direct, 66.1 against 58.2 on
-  prose, and four concurrent requests aggregate 213.5 tok/s against 104.9 direct.
-- **No drift.** 31 of 31 fixed prompts produce identical token ids, text and finish reasons against the
-  previous engine build, including a 100k-token context and resumable conversations.
-- **No surprises in memory.** 235 MiB idle, 306 MiB after a 188k-token prompt.
-- **68 contract cases** that classify every divergence against the engine, by class and by the file
-  responsible. 61 comply; the 7 that do not are engine template gaps, listed publicly.
+Measured and reported as `ds41-paridad` cases, not fixed in this repository:
 
-The full tables, the method and what the numbers do not cover are in `BENCHMARKS.md`. The ones that do not
-cover are stated as plainly as the ones that do.
+- Reasoning effort: the engine's native table is 25/50/62/75/88/100; the API's is 50/50/75/75/75/100.
+  `API_GATEWAY=1` selects the API table on the engine (`TF_DS_API_EFFORTS=1`).
+- Tool grammar and `response_format`: not applied by the engine's `/tokenize`; applied by the gateway's renderer.
+- `chat-asistente-final-sin-prefix`: trailing newline differs between the two renderers.
 
-## Why it is built this way
+## Operational constraints
 
-- **The engine stays the engine.** One optional patch adds the token route; nothing else in the engine moves.
-- **The fallback is bounded.** Requests the conversion cannot represent go to the engine unchanged, with a
-  header and one log line. A real error never becomes a successful response.
-- **Images cannot leak your network.** Private, loopback, link-local, CGNAT, reserved, documentation and
-  tunnelling destinations are rejected for IPv4 and IPv6, on every redirect and every resolved address.
-- **It is small on purpose.** No Python, no OpenCV, no GPU: the image is 13.9 MiB and its runtime dependencies
-  are the C library and the loader.
-
-## What is next
-
-The parity battery points at the engine now. Reasoning-effort table, tool grammar and `response_format`
-rendering are template gaps on the engine side, and they are the next round of work, not a gateway problem.
-
-## Try it
-
-```sh
-cargo build --release --locked --bin ds41-gateway --bin ds41-paridad
-ds41-paridad casos --casos casos
-```
-
-It runs on CPU against a scripted engine with no model weights, so you can see the whole contract work before
-you have a GPU.
+- 13.9 MiB image, read-only, uid 10001, no Python, no OpenCV, no CUDA; base images pinned by digest.
+- Image destination filter covers IPv4 and IPv6 private, loopback, link-local, CGNAT, reserved, documentation
+  and tunnelling ranges, on every redirect and every resolved address.
+- Parity battery of 68 contract cases runs without GPU against a scripted engine.
 
 ---
 
-*eleata* · [github.com/eleata](https://github.com/eleata)
+eleata

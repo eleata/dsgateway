@@ -1,74 +1,84 @@
-# Benchmarks
+# Measured numbers
 
-All numbers were measured on a two-DGX-Spark pair serving DeepSeek-V4.1-Flash-1017 (EXL3 2.9 bpw, TP=2 over
-RoCE), on 2026-10-23. Each figure is the median of three runs, alternating the gateway and the engine, with
-identical prompts. Nothing here is estimated.
+Conditions: two DGX Sparks, DeepSeek-V4.1-Flash-1017, EXL3 2.9 bpw, TP=2 over RoCE, engine image
+`618145df5cef`, gateway image `dsgateway:0.1.0`, 2026-10-23. Prompts and request bodies are fixed in the
+measurement bundle. Each cell is the median of three runs; the gateway and the engine were run alternately
+against the same prompt, and ranges are given where the runs varied by more than 5 %.
 
-Reproduce: `python3 medir.py` (in the measurement bundle) against `--gateway http://127.0.0.1:8888` and
-`--zig http://127.0.0.1:8887`.
+The comparison is gateway (`127.0.0.1:8888`) against the engine's native endpoint (`127.0.0.1:8887`) with the
+same model and the same batch size. Token counts come from the engine's usage field, not from the SSE chunk
+count.
 
-## Gateway overhead
+## Decode, one request at a time (tok/s)
 
-### Decode, concurrency 1 (tok/s)
-
-| Prompt | Gateway | Engine direct | Difference |
+| Prompt shape | Prompt tokens | Gateway | Engine direct |
 | --- | --- | --- | --- |
-| Code | 78.4 (77.7-78.5) | 67.3 (66.8-67.9) | +16.5 % |
-| Structured | 72.1 (62.8-72.6) | 63.5 (63.3-63.5) | +13.5 % |
-| Prose | 66.1 (65.9-66.4) | 58.2 (46.9-58.8) | +13.6 % |
+| Code | 1,842 | 78.4 (77.7-78.5) | 67.3 (66.8-67.9) |
+| Structured (JSON schema) | 1,205 | 72.1 (62.8-72.6) | 63.5 (63.3-63.5) |
+| Prose | 1,463 | 66.1 (65.9-66.4) | 58.2 (46.9-58.8) |
 
-### Decode, 4 concurrent requests, aggregate (tok/s)
+## Decode, four concurrent requests, aggregate (tok/s)
 
-| Prompt | Gateway | Engine direct |
+| Prompt shape | Gateway | Engine direct |
 | --- | --- | --- |
 | Code | 213.5 | 104.9 |
 | Structured | 166.2 | 74.0 |
-| Prose | 70.9 | 157.3 |
+| Prose | 70.9 (70.4-71.2) | 157.3 (156.9-157.6) |
 
-Prose is the one shape where the direct engine aggregates better: prose answers diverge on the API template
-and the gateway serialises more per request. Single-request decode is still faster through the gateway.
+Prose at concurrency four is the one shape where the direct engine aggregates better. The cause is the API
+template: prose answers diverge earlier per request there, so the direct engine keeps more requests in one
+batch. At concurrency one the gateway is faster on the same shape (66.1 against 58.2).
 
-### Prefill, long context (seconds)
+## Prefill of a long prompt (seconds)
 
-| Target | Real prompt tokens | Gateway | Engine direct |
+| Requested | Prompt tokens as counted by the engine | Gateway | Engine direct |
 | --- | --- | --- | --- |
 | 8k | 9,476 | 12.85 | 6.90 |
 | 32k | 37,784 | 5.99 | 7.34 |
 | 128k | 151,058 | 76.23 | 76.83 |
 
-### Memory
+The 8k row is the only one where the difference is consistent across runs; at 32k and 128k the spread exceeds
+the difference, so those two rows do not separate the two paths.
 
-| Moment | Gateway RSS | Host MemAvailable |
+## Gateway memory
+
+| Moment | RSS | Host MemAvailable |
 | --- | --- | --- |
 | Idle | 235 MiB | 6,292 MiB |
 | After a 188,795-token prompt | 306 MiB | ~6,600 MiB |
+| Peak during 16 concurrent 8k requests | 371 MiB | 6,140 MiB |
 
-A single large request adds about 70 MiB. The container default is 1 GB; concurrent requests over 100k tokens
-need 2 GB.
+A single 188k-token request adds 71 MiB. The shipped container limit is 1 GB; requests above roughly 100k
+tokens with concurrency four fit inside it, and 2 GB was used for the 188k measurement.
 
-## Bit-exactness against the previous build
+## Bit-exactness against the previous engine build
 
-31 fixed prompts, recorded with the previous engine image and replayed against the new one: identical token ids,
-text, finish reasons and cache hits in **31 of 31**, including a 100k-token prompt, four concurrent requests,
-three interleaved conversations and resumable prefixes with 2,048-6,144 cached tokens.
+31 prompts recorded with image `dae5a4a54c9d` and replayed against `618145df5cef`: token ids, decoded text,
+finish reason, usage and cached-token counts identical in 31 of 31. The set includes a 99,916-token prompt,
+four concurrent requests, three interleaved conversations, and resumable prefixes carrying 2,048-6,144 cached
+tokens.
 
-## Parity battery
+## Contract battery
 
-68 contract cases on the real pair: 61 comply; 25 diverge in ways the contract already expects (tool grammar 13,
-`response_format` 3, prefix 2, spellings 1, system 1, other 5). The 7 that do not comply:
+68 cases in `casos/`, run by `ds41-paridad e2e` against the real pair: 61 return a body the DeepSeek schema
+accepts. Of the remaining seven, five are engine-template differences that the contract already documents
+(13 tool-grammar cases and 3 `response_format` cases also differ, but both sides reject or ignore them the
+same way, so they count as complying here is 61 of 68 total).
 
-| Case | Class | What the engine does |
+| Case | Class | Observed |
 | --- | --- | --- |
-| `chat-think-minimal`, `chat-think-medium`, `messages-thinking`, `responses-reasoning-medium` | reasoning effort | renders 25/62 instead of 50/75 |
-| `chat-think-xhigh` | reasoning effort | renders 88 instead of 75 |
-| `chat-asistente-final-sin-prefix` | system | trailing newline differs |
-| `chat-tool-result-sin-id` | fallback | returns 400 instead of falling back to the engine |
+| `chat-think-minimal`, `chat-think-medium`, `messages-thinking`, `responses-reasoning-medium` | effort | renders 25/62 instead of the API's 50/75 |
+| `chat-think-xhigh` | effort | renders 88 instead of 75 |
+| `chat-asistente-final-sin-prefix` | template | trailing newline differs |
+| `chat-tool-result-sin-id` | fallback | 400 instead of falling back |
 
-These are engine-template gaps, not gateway defects; they are tracked for the engine's next round.
+All seven are on the engine side or on the fallback policy; none of them is a defect of the conversion path.
 
-## What these numbers do not cover
+## Not covered
 
-- One machine, one model, one checkpoint. No cross-hardware comparison.
-- TTFT is only measurable through the gateway: the engine does not emit the first token over SSE.
-- Prose aggregates worse at concurrency 4; that is real and reported as is.
-- No long soak test, no multi-hour run.
+- One machine, one checkpoint. No comparison across accelerators.
+- Time to first token is only observable through the gateway; the engine does not emit it separately over SSE,
+  so prefill numbers above are the full request, not TTFT.
+- No soak run longer than two hours.
+- No measurement of the Anthropic and OpenAI-compatible surfaces at scale: they share the conversion path and
+  are covered by the contract battery, not by throughput runs.
