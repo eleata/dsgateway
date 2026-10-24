@@ -31,7 +31,8 @@ struct Cli {
     /// Additional accepted model alias (repeatable).
     #[arg(long = "alias")]
     aliases: Vec<String>,
-    /// Served `tokenizer.json`.
+    /// Served `tokenizer.json`. The image carries it at `/served/tokenizer.json`; a checkout
+    /// runs with the copy next to the crate (`tok/tokenizer.json`) when the image path is absent.
     #[arg(long, default_value = "/served/tokenizer.json")]
     tokenizer: PathBuf,
     /// Spelling of the image token in the served tokenizer.
@@ -134,8 +135,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|| "info".to_string());
     let dns_overrides = parse_dns_overrides(&cli.dns_overrides)?;
 
+    let tokenizer = resolve_tokenizer(&cli.tokenizer);
     let gateway = Gateway::from_file(
-        &cli.tokenizer,
+        &tokenizer,
         GatewaySettings {
             served_name: served_name.clone(),
             default_thinking,
@@ -206,9 +208,36 @@ async fn auto_engine_logprobs(engine: &EngineClient) -> Option<bool> {
         return None;
     }
     let body: Value = response.json().await.ok()?;
-    body.get("logprobs")
+    // The engine reports the feature as `features.logprobs`; older builds put it at the top
+    // level.  Both are accepted, so the fallback actually fires when the engine says false.
+    body.get("features")
+        .and_then(|features| features.get("logprobs"))
+        .or_else(|| body.get("logprobs"))
         .or_else(|| body.get("engine").and_then(|engine| engine.get("logprobs")))
+        .or_else(|| {
+            body.get("engine")
+                .and_then(|engine| engine.get("features"))
+                .and_then(|features| features.get("logprobs"))
+        })
         .and_then(Value::as_bool)
+}
+
+/// Use the requested tokenizer; if the image path is absent (a plain checkout), fall back to
+/// the copy the repository ships so the binary starts with no flags and no extra mount.
+fn resolve_tokenizer(requested: &std::path::Path) -> std::path::PathBuf {
+    if requested.exists() {
+        return requested.to_path_buf();
+    }
+    let local = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tok/tokenizer.json");
+    if local.exists() {
+        eprintln!(
+            "tokenizer: {} is absent; using {}",
+            requested.display(),
+            local.display()
+        );
+        return local;
+    }
+    requested.to_path_buf()
 }
 
 /// Ask the engine for its context limit; a short timeout keeps startup under two seconds.

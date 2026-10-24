@@ -300,7 +300,7 @@ fn translate_messages(body: &Value) -> Result<Value, String> {
                                         "type": "function",
                                         "function": {
                                             "name": block.get("name").cloned().unwrap_or(Value::Null),
-                                            "arguments": serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string())
+                                            "arguments": arguments
                                         }
                                     }));
                                 }
@@ -401,13 +401,16 @@ fn translate_anthropic_choice(choice: &Value) -> Result<Value, String> {
             other => Err(format!("unsupported Anthropic tool_choice {other}")),
         },
         Value::Object(object) => {
-            if object.get("type").and_then(Value::as_str) == Some("tool") {
-                Ok(json!({
+            match object.get("type").and_then(Value::as_str) {
+                Some("tool") => Ok(json!({
                     "type": "function",
                     "function": {"name": object.get("name").cloned().unwrap_or(Value::Null)}
-                }))
-            } else {
-                Err("unsupported Anthropic tool_choice object".to_string())
+                })),
+                // Anthropic also sends the string forms as objects: `any` is Chat\'s `required`.
+                Some("auto") => Ok(Value::String("auto".to_string())),
+                Some("any") => Ok(Value::String("required".to_string())),
+                Some("none") => Ok(Value::String("none".to_string())),
+                _ => Err("unsupported Anthropic tool_choice object".to_string()),
             }
         }
         _ => Err("tool_choice is neither a string nor an object".to_string()),
@@ -455,6 +458,13 @@ fn translate_responses(body: &Value) -> Result<Value, String> {
                     }
                     "function_call" | "custom_tool_call" => {
                         let arguments = item.get("arguments").cloned().unwrap_or(json!({}));
+                        // Responses carries `arguments` as a JSON string; Chat wants the same string.
+                        let arguments = match arguments {
+                            Value::String(text) => text,
+                            other => {
+                                serde_json::to_string(&other).unwrap_or_else(|_| "{}".to_string())
+                            }
+                        };
                         messages.push(json!({
                             "role": "assistant",
                             "content": "",
@@ -463,7 +473,7 @@ fn translate_responses(body: &Value) -> Result<Value, String> {
                                 "type": "function",
                                 "function": {
                                     "name": item.get("name").cloned().unwrap_or(Value::Null),
-                                    "arguments": serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string())
+                                    "arguments": arguments
                                 }
                             }]
                         }));
