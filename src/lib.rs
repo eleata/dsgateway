@@ -26,6 +26,7 @@ pub mod images;
 pub mod paridad;
 pub mod parity;
 pub mod proxy;
+pub mod security;
 
 /// Load the real tokenizer shared by unit and integration tests.  Tests can set
 /// `DS41_TOKENIZER`; otherwise use the tokenizer distributed next to the crate.
@@ -34,18 +35,11 @@ pub fn test_tokenizer() -> Tokenizer {
     let path = std::env::var_os("DS41_TOKENIZER")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
-            // The recipe keeps the tokenizer one level up; this repository keeps it in ./tok.
-            let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-            let local = manifest.join("tok/tokenizer.json");
-            if local.exists() {
-                local
-            } else {
-                manifest.join("../tok/tokenizer.json")
-            }
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tok/tokenizer.json")
         });
     Tokenizer::from_file(&path).unwrap_or_else(|error| {
         panic!(
-            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or place tok/tokenizer.json in the repository",
+            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or restore the default ../tok/tokenizer.json",
             path.display()
         )
     })
