@@ -60,19 +60,25 @@ tokens.
 
 ## Contract battery
 
-68 cases in `casos/`, run by `ds41-paridad e2e` against the real pair: 61 return a body the DeepSeek schema
-accepts. Of the remaining seven, five are engine-template differences that the contract already documents
-(13 tool-grammar cases and 3 `response_format` cases also differ, but both sides reject or ignore them the
-same way, so they count as complying here is 61 of 68 total).
+68 cases in `casos/`, run by `ds41-paridad render` against the real pair with the recipe's launch defaults
+(`THINKING=1`): **63 comply, 5 do not**. The comparator's result depends on the defaults it is pointed at; run it
+with the same `--default-thinking` the gateway was started with, or every case diverges by the reasoning prefix.
 
-| Case | Class | Observed |
-| --- | --- | --- |
-| `chat-think-minimal`, `chat-think-medium`, `messages-thinking`, `responses-reasoning-medium` | effort | renders 25/62 instead of the API's 50/75 |
-| `chat-think-xhigh` | effort | renders 88 instead of 75 |
-| `chat-asistente-final-sin-prefix` | template | trailing newline differs |
-| `chat-tool-result-sin-id` | fallback | 400 instead of falling back |
+Of the five: four are image cases (`chat-1-imagen`, `chat-2-imagenes`, `messages-imagen`, `responses-imagen`) that
+cannot be measured because the engine has no vision in this deployment, and one is `chat-asistente-final-sin-prefix`,
+whose expected class says `largo` and the comparator classifies it as `sistema`.
 
-All seven are on the engine side or on the fallback policy; none of them is a defect of the conversion path.
+`ds41-paridad e2e` measured 9 of the 68 cases: 2 comply, 7 do not — 4 are context-limit cases answered 200 where
+the case expects 400, and 3 are the scripted engine leaving `<|im_end|>` in the text. The other 59 cases carry
+`e2e: "n/a"` and are excluded by the comparator.
+
+All of these are engine-template or harness differences, not defects of the conversion path.
+
+## Numbers this file cannot prove
+
+The figures above were measured on one pair, with a bundle of scripts that lives with the deployment, not in this
+repository. `BENCHMARKS.md` states them as measured on 2026-10-23 against the images it names; it does not ship the
+raw results, the prompts or the logs. Reproduce them with the bundle or treat them as one deployment's report.
 
 ## Not covered
 
