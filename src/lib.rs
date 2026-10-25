@@ -32,14 +32,16 @@ pub mod security;
 /// `DS41_TOKENIZER`; otherwise use the tokenizer distributed next to the crate.
 #[doc(hidden)]
 pub fn test_tokenizer() -> Tokenizer {
-    let path = std::env::var_os("DS41_TOKENIZER")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|| {
-            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tok/tokenizer.json")
-        });
+    let path = std::env::var_os("DS41_TOKENIZER").map(std::path::PathBuf::from);
+    // The tokenizer ships inside the repo at tok/tokenizer.json, so the battery runs from a bare checkout. The
+    // historical ../tok location stays as a fallback for a tree laid out next to the recipe.
+    let path = path.unwrap_or_else(|| {
+        let in_repo = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tok/tokenizer.json");
+        if in_repo.is_file() { in_repo } else { std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../tok/tokenizer.json") }
+    });
     Tokenizer::from_file(&path).unwrap_or_else(|error| {
         panic!(
-            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or restore the default ../tok/tokenizer.json",
+            "could not load the test tokenizer at {}: {error}; set DS41_TOKENIZER=/path/to/tokenizer.json or add tok/tokenizer.json to the repo",
             path.display()
         )
     })
